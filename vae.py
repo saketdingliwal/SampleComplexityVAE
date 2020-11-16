@@ -9,20 +9,6 @@ from torch import nn
 import matplotlib.pyplot as plt
 
 
-class Normal(object):
-    def __init__(self, mu, sigma, log_sigma, v=None, r=None):
-        self.mu = mu
-        self.sigma = sigma  # either stdev diagonal itself, or stdev diagonal from decomposition
-        self.logsigma = log_sigma
-        dim = mu.get_shape()
-        if v is None:
-            v = torch.FloatTensor(*dim)
-        if r is None:
-            r = torch.FloatTensor(*dim)
-        self.v = v
-        self.r = r
-
-
 class Encoder(torch.nn.Module):
     def __init__(self, d, D):
         super(Encoder, self).__init__()
@@ -44,12 +30,11 @@ class Decoder(torch.nn.Module):
 
 
 class VAE(torch.nn.Module):
-    latent_dim = 8
 
-    def __init__(self, encoder, decoder):
+    def __init__(self, d, D):
         super(VAE, self).__init__()
-        self.encoder = encoder
-        self.decoder = decoder
+        self.encoder = Encoder(d, D)
+        self.decoder = Decoder(d, D)
         # self._enc_mu = torch.nn.Linear(100, 8)
         # self._enc_log_sigma = torch.nn.Linear(100, 8)
 
@@ -64,23 +49,27 @@ class VAE(torch.nn.Module):
 
         return mu + sigma * Variable(std_z, requires_grad=False)  # Reparameterization trick
 
-    def forward(self, state):
-        mu = self.encoder(state)
+    def forward(self, x):
+        mu = self.encoder(x)
         sigma = torch.exp(self.encoder.log_S)
-
         z = self._sample_latent(mu, sigma)
-
         dec_mean = self.decoder(z)
-        s = torch.exp(self.decoder.log_s)
-        std_z = torch.from_numpy(np.random.normal(0, 1, size=dec_mean.size())).float()
-        dec_sigma = s * Variable(std_z, requires_grad=False)
-        return dec_mean + dec_sigma
+        return dec_mean
+        # s = torch.exp(self.decoder.log_s)
+        # std_z = torch.from_numpy(np.random.normal(0, 1, size=dec_mean.size())).float()
+        # dec_sigma = s * Variable(std_z, requires_grad=False)
+        # return dec_mean + dec_sigma
 
 
-def latent_loss(z_mean, z_stddev):
+def kl_loss(z_mean, z_stddev):
     mean_sq = z_mean * z_mean
+
     stddev_sq = z_stddev * z_stddev
     return 0.5 * torch.mean(mean_sq + stddev_sq - torch.log(stddev_sq) - 1)
+
+
+def re_loss(x, x_hat, s):
+
 
 
 if __name__ == '__main__':
