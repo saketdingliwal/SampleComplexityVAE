@@ -7,6 +7,28 @@ from torchvision import transforms
 import torch.optim as optim
 from torch import nn
 import matplotlib.pyplot as plt
+import scipy
+
+criterion = nn.MSELoss()
+
+class MyDataSet(torch.utils.data.Dataset):
+    def __init__(self, d, D, size):
+        v = np.random.normal(0, 1, size=(size,d))
+        a = np.random.random(size=(D, d))
+        self.A, _ = np.linalg.qr(a)
+        self.sigma = 2
+        noise = np.random.normal(0, 1, size=(size,D))
+        x_train = np.matmul(v, self.A.T) + self.sigma * noise
+        x_train_tensor = torch.from_numpy(x_train).float()
+        self.x = x_train_tensor
+        
+    def __getitem__(self, index):
+        return self.x[index]
+
+    def __len__(self):
+        return len(self.x)
+
+
 
 
 class Encoder(torch.nn.Module):
@@ -33,6 +55,8 @@ class VAE(torch.nn.Module):
 
     def __init__(self, d, D):
         super(VAE, self).__init__()
+        self.d = d
+        self.D = D
         self.encoder = Encoder(d, D)
         self.decoder = Decoder(d, D)
         # self._enc_mu = torch.nn.Linear(100, 8)
@@ -42,12 +66,11 @@ class VAE(torch.nn.Module):
         """
         Return the latent normal sample z ~ N(mu, sigma^2)
         """
-        std_z = torch.from_numpy(np.random.normal(0, 1, size=sigma.size())).float()
-
+        std_z = torch.from_numpy(np.random.normal(0, 1, size=mu.size())).float()
         self.z_mean = mu
         self.z_sigma = sigma
-
-        return mu + sigma * Variable(std_z, requires_grad=False)  # Reparameterization trick
+        eps_sigm = sigma[None:] * Variable(torch.transpose(std_z,0,1), requires_grad=False)
+        return mu +  torch.transpose(eps_sigm, 0, 1) # Reparameterization trick
 
     def forward(self, x):
         mu = self.encoder(x)
@@ -60,48 +83,43 @@ class VAE(torch.nn.Module):
         # dec_sigma = s * Variable(std_z, requires_grad=False)
         # return dec_mean + dec_sigma
 
+    def kl_loss(self):
+        mean_sq = self.z_mean * self.z_mean
+        log_term = torch.sum(torch.log(self.z_sigma))
+        trace_term = torch.sum(self.z_sigma)    
+        return 0.5 * torch.mean(trace_term + mean_sq - log_term)
 
-def kl_loss(z_mean, z_stddev):
-    mean_sq = z_mean * z_mean
+    def re_loss(self, x, x_hat):
+        s = torch.exp(self.decoder.log_s)
+        mse_loss = criterion(x, x_hat)
+        log_term = 2 * self.D * self.decoder.log_s
+        return 0.5 * (mse_loss/(s*s) + log_term)
 
-    stddev_sq = z_stddev * z_stddev
-    return 0.5 * torch.mean(mean_sq + stddev_sq - torch.log(stddev_sq) - 1)
-
-
-def re_loss(x, x_hat, s):
 
 
 
 if __name__ == '__main__':
 
-    input_dim = 28 * 28
+    D = 20
+    d = 7
+    num_points = 10000
     batch_size = 32
 
-    transform = transforms.Compose(
-        [transforms.ToTensor()])
-    mnist = torchvision.datasets.MNIST('./', download=True, transform=transform)
-
-    dataloader = torch.utils.data.DataLoader(mnist, batch_size=batch_size,
+    dataset = MyDataSet(d, D, num_points)
+    dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size,
                                              shuffle=True, num_workers=2)
 
-    print('Number of samples: ', len(mnist))
+    print('Number of samples: ', len(dataset))
 
-    encoder = Encoder(input_dim, 100, 100)
-    decoder = Decoder(8, 100, input_dim)
-    vae = VAE(encoder, decoder)
-
-    criterion = nn.MSELoss()
-
+    vae = VAE(d, D)
     optimizer = optim.Adam(vae.parameters(), lr=0.0001)
     l = None
     for epoch in range(100):
         for i, data in enumerate(dataloader, 0):
-            inputs, classes = data
-            inputs, classes = Variable(inputs.resize_(batch_size, input_dim)), Variable(classes)
+            inputs = Variable(data)
             optimizer.zero_grad()
             dec = vae(inputs)
-            ll = latent_loss(vae.z_mean, vae.z_sigma)
-            loss = criterion(dec, inputs) + ll
+            loss = vae.kl_loss() + vae.re_loss(inputs, dec)
             loss.backward()
             optimizer.step()
             l = loss.data[0]
