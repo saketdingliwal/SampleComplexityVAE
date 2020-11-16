@@ -24,25 +24,23 @@ class Normal(object):
 
 
 class Encoder(torch.nn.Module):
-    def __init__(self, D_in, H, D_out):
+    def __init__(self, d, D):
         super(Encoder, self).__init__()
-        self.linear1 = torch.nn.Linear(D_in, H)
-        self.linear2 = torch.nn.Linear(H, D_out)
+        self.M = torch.nn.Linear(D, d, bias=False)
+        self.log_S = torch.rand((d, 1), requires_grad=True)
 
     def forward(self, x):
-        x = F.relu(self.linear1(x))
-        return F.relu(self.linear2(x))
+        return self.M(x)
 
 
 class Decoder(torch.nn.Module):
-    def __init__(self, D_in, H, D_out):
+    def __init__(self, d, D):
         super(Decoder, self).__init__()
-        self.linear1 = torch.nn.Linear(D_in, H)
-        self.linear2 = torch.nn.Linear(H, D_out)
+        self.W = torch.nn.Linear(d, D, bias=False)
+        self.log_s = torch.rand(1, requires_grad= True)
 
     def forward(self, x):
-        x = F.relu(self.linear1(x))
-        return F.relu(self.linear2(x))
+        return self.W(x)
 
 
 class VAE(torch.nn.Module):
@@ -52,16 +50,13 @@ class VAE(torch.nn.Module):
         super(VAE, self).__init__()
         self.encoder = encoder
         self.decoder = decoder
-        self._enc_mu = torch.nn.Linear(100, 8)
-        self._enc_log_sigma = torch.nn.Linear(100, 8)
+        # self._enc_mu = torch.nn.Linear(100, 8)
+        # self._enc_log_sigma = torch.nn.Linear(100, 8)
 
-    def _sample_latent(self, h_enc):
+    def _sample_latent(self, mu, sigma):
         """
         Return the latent normal sample z ~ N(mu, sigma^2)
         """
-        mu = self._enc_mu(h_enc)
-        log_sigma = self._enc_log_sigma(h_enc)
-        sigma = torch.exp(log_sigma)
         std_z = torch.from_numpy(np.random.normal(0, 1, size=sigma.size())).float()
 
         self.z_mean = mu
@@ -70,9 +65,16 @@ class VAE(torch.nn.Module):
         return mu + sigma * Variable(std_z, requires_grad=False)  # Reparameterization trick
 
     def forward(self, state):
-        h_enc = self.encoder(state)
-        z = self._sample_latent(h_enc)
-        return self.decoder(z)
+        mu = self.encoder(state)
+        sigma = torch.exp(self.encoder.log_S)
+
+        z = self._sample_latent(mu, sigma)
+
+        dec_mean = self.decoder(z)
+        s = torch.exp(self.decoder.log_s)
+        std_z = torch.from_numpy(np.random.normal(0, 1, size=dec_mean.size())).float()
+        dec_sigma = s * Variable(std_z, requires_grad=False)
+        return dec_mean + dec_sigma
 
 
 def latent_loss(z_mean, z_stddev):
