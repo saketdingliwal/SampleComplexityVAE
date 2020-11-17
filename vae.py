@@ -10,13 +10,15 @@ import matplotlib.pyplot as plt
 import scipy
 
 criterion = nn.MSELoss()
+SIGMA = 1e-2
+
 
 class MyDataSet(torch.utils.data.Dataset):
     def __init__(self, d, D, size):
         v = np.random.normal(0, 1, size=(size,d))
         a = np.random.random(size=(D, d))
         self.A, _ = np.linalg.qr(a)
-        self.sigma = 0.0001
+        self.sigma = SIGMA
         noise = np.random.normal(0, 1, size=(size,D))
         x_train = np.matmul(v, self.A.T) + self.sigma * noise
         x_train_tensor = torch.from_numpy(x_train).float()
@@ -45,7 +47,10 @@ class Decoder(torch.nn.Module):
     def __init__(self, d, D):
         super(Decoder, self).__init__()
         self.W = torch.nn.Linear(d, D, bias=False)
-        self.log_s = torch.rand(1, requires_grad= True)
+        # self.log_s = torch.rand(1, requires_grad= True)
+        # self.log_s = torch.from_numpy(np.log(0.0001)).float()
+        self.log_s = Variable(torch.log(torch.Tensor([SIGMA])), requires_grad=False)
+        print (self.log_s)
 
     def forward(self, x):
         return self.W(x)
@@ -106,11 +111,12 @@ class VAE(torch.nn.Module):
 
 if __name__ == '__main__':
 
-    D = 1
-    d = 1
+    D = 10
+    d = 5
     num_points = 10000
-    batch_size = 2
+    batch_size = 100
     lr = 0.001
+    max_epochs = 1000
     dataset = MyDataSet(d, D, num_points)
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size,
                                              shuffle=True, num_workers=2)
@@ -120,7 +126,7 @@ if __name__ == '__main__':
     vae = VAE(d, D)
     optimizer = optim.Adam(vae.parameters(), lr=lr)
     l = None
-    for epoch in range(100):
+    for epoch in range(max_epochs):
         for i, data in enumerate(dataloader, 0):
             inputs = Variable(data)
             optimizer.zero_grad()
