@@ -13,6 +13,8 @@ criterion = nn.MSELoss()
 SIGMA = 1e-2
 
 
+
+
 class MyDataSet(torch.utils.data.Dataset):
     def __init__(self, d, D, size):
         v = np.random.normal(0, 1, size=(size,d))
@@ -48,9 +50,8 @@ class Decoder(torch.nn.Module):
         super(Decoder, self).__init__()
         self.W = torch.nn.Linear(d, D, bias=False)
         # self.log_s = torch.rand(1, requires_grad= True)
-        # self.log_s = torch.from_numpy(np.log(0.0001)).float()
         self.log_s = Variable(torch.log(torch.Tensor([SIGMA])), requires_grad=False)
-        print (self.log_s)
+        # print (self.log_s)
 
     def forward(self, x):
         return self.W(x)
@@ -140,6 +141,34 @@ class VAE(torch.nn.Module):
     def total_loss_direct(self, x):
         return self.kl_loss_direct(x) + self.re_loss_direct(x)
 
+    def avg_g(self, A, sigma, num_samples):
+        W = self.decoder.W.weight.detach().numpy()
+        mat = A - W
+        z = np.random.normal(0, 1, size=(num_samples,self.d))
+        diff_hat = np.matmul(z, mat.T)
+        diff_hat_sq = diff_hat * diff_hat
+        return np.sum(diff_hat_sq)/(2*sigma*sigma*num_samples)
+
+    def avg_h(self, A, sigma, num_samples):
+        v = np.random.normal(0, 1, size=(num_samples,self.d))
+        noise = np.random.normal(0, 1, size=(num_samples,D))
+        x = np.matmul(v, A.T) + sigma * noise
+        log_S = self.encoder.log_S.detach().numpy()
+        S = np.exp(log_S)
+        P = A.T/(1+sigma*sigma)
+        M = self.encoder.M.weight.detach().numpy()
+
+        trace_term = (1+(1/(sigma*sigma)))*np.sum(S)
+        log_term = self.d * np.log(sigma*sigma) - self.d * np.log(1 + sigma*sigma) - np.sum(log_S)
+        mat_x = np.matmul(x, (P-M).T)
+        mat_x_sq = np.sum(mat_x * mat_x)/num_samples
+        mat_term = (1+(1/(sigma*sigma))) * mat_x_sq
+
+        return 0.5 * (trace_term + mat_term + log_term - d)
+
+
+
+
 
 
 if __name__ == '__main__':
@@ -160,6 +189,7 @@ if __name__ == '__main__':
     optimizer = optim.Adam(vae.parameters(), lr=lr)
     l = None
     for epoch in range(max_epochs):
+        losses = []
         for i, data in enumerate(dataloader, 0):
             inputs = Variable(data)
             optimizer.zero_grad()
@@ -167,4 +197,11 @@ if __name__ == '__main__':
             loss.backward()
             optimizer.step()
             l = loss
-        print(epoch, l)
+            losses.append(l.data[0])
+
+        vae_loss = np.mean(losses)
+        g_loss = vae.avg_g(dataset.A, dataset.sigma, 100)
+        h_loss = vae.avg_h(dataset.A, dataset.sigma, 100)
+        print(epoch, vae_loss)
+        print(epoch, g_loss)
+        print(epoch, h_loss)
