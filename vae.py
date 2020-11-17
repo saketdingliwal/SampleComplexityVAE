@@ -103,9 +103,42 @@ class VAE(torch.nn.Module):
     def re_loss(self, x, x_hat):
         s = torch.exp(self.decoder.log_s)
         mse_loss = criterion(x, x_hat)
-        log_term = 2 * self.D * self.decoder.log_s + np.log(2*np.pi)
+        log_term = 2 * self.D * self.decoder.log_s + self. D * np.log(2*np.pi)
         return 0.5 * (mse_loss/(s*s) + log_term)
 
+
+    def total_loss(self, x):
+        x_hat = self.forward(x)
+        return self.kl_loss() + self.re_loss(x, x_hat)
+
+    def re_loss_direct(self, x):
+        log_term = (self.D/2) * np.log(2*np.pi) + self.D * self.decoder.log_s
+        
+        s = torch.exp(self.decoder.log_s)
+        x_mat = torch.matmul(self.decoder.W.weight, self.encoder.M.weight) - torch.eye(self.D)
+        x_vect = torch.matmul(x, x_mat)
+        norm_term = torch.mean(x_vect * x_vect)/(2*s*s)
+
+        W = self.decoder.W.weight
+        W_T = torch.transpose(W, 0, 1)
+        trace_mat = torch.matmul(W,W_T)
+        trace_diag = torch.diagonal(trace_mat)
+        S = torch.exp(self.encoder.log_S)
+        trace_term = torch.sum(trace_diag * S)/(2*s*s)
+
+        return log_term + norm_term + trace_term
+
+
+    def kl_loss_direct(self, x):
+        S = torch.exp(self.encoder.log_S)
+        mean = self.encoder(x)
+        mean_term = torch.mean(mean * mean)
+        trace_term = torch.sum(S)
+        log_term = torch.sum(self.encoder.log_S)
+        return 0.5 * (trace_term + mean_term - log_term - self.d)
+
+    def total_loss_direct(self, x):
+        return self.kl_loss_direct(x) + self.re_loss_direct(x)
 
 
 
@@ -130,9 +163,8 @@ if __name__ == '__main__':
         for i, data in enumerate(dataloader, 0):
             inputs = Variable(data)
             optimizer.zero_grad()
-            dec = vae(inputs)
-            loss = vae.kl_loss() + vae.re_loss(inputs, dec)
+            loss = vae.total_loss_direct(inputs)
             loss.backward()
             optimizer.step()
-            l = loss.data[0]
+            l = loss
         print(epoch, l)
