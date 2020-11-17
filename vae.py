@@ -8,6 +8,8 @@ import torch.optim as optim
 from torch import nn
 import matplotlib.pyplot as plt
 import scipy
+import matplotlib.pyplot as plt
+
 
 criterion = nn.MSELoss()
 SIGMA = 1e-2
@@ -178,7 +180,7 @@ if __name__ == '__main__':
     num_points = 10000
     batch_size = 100
     lr = 0.001
-    max_epochs = 1000
+    max_epochs = 100
     dataset = MyDataSet(d, D, num_points)
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size,
                                              shuffle=True, num_workers=2)
@@ -188,6 +190,10 @@ if __name__ == '__main__':
     vae = VAE(d, D)
     optimizer = optim.Adam(vae.parameters(), lr=lr)
     l = None
+    epochs = []
+    vae_losses = []
+    g_losses = []
+    h_losses = []
     for epoch in range(max_epochs):
         losses = []
         for i, data in enumerate(dataloader, 0):
@@ -202,6 +208,16 @@ if __name__ == '__main__':
         vae_loss = np.mean(losses)
         g_loss = vae.avg_g(dataset.A, dataset.sigma, 100)
         h_loss = vae.avg_h(dataset.A, dataset.sigma, 100)
+        epochs.append(epoch)
+        vae_losses.append(vae_loss)
+        g_losses.append(g_loss)
+        h_losses.append(h_loss)
         print(epoch, vae_loss)
         print(epoch, g_loss)
         print(epoch, h_loss)
+
+    plt.plot(epochs, vae_losses, label="VAE Objective")
+    plt.plot(epochs, g_losses, label="E[g(W,s2)]")
+    plt.plot(epochs, h_losses, label="E[h(M,S)]")
+    plt.legend()
+    plt.savefig('run1.png')
