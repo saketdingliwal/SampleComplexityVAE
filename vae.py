@@ -16,7 +16,7 @@ class MyDataSet(torch.utils.data.Dataset):
         v = np.random.normal(0, 1, size=(size,d))
         a = np.random.random(size=(D, d))
         self.A, _ = np.linalg.qr(a)
-        self.sigma = 2
+        self.sigma = 0.0001
         noise = np.random.normal(0, 1, size=(size,D))
         x_train = np.matmul(v, self.A.T) + self.sigma * noise
         x_train_tensor = torch.from_numpy(x_train).float()
@@ -74,9 +74,15 @@ class VAE(torch.nn.Module):
 
     def forward(self, x):
         mu = self.encoder(x)
+        # print (self.encoder.M.weight)
+        # print (mu)
         sigma = torch.exp(self.encoder.log_S)
         z = self._sample_latent(mu, sigma)
+        # print (sigma)
+        # print (z)
+        # print (self.decoder.W.weight)
         dec_mean = self.decoder(z)
+        # print (dec_mean)
         return dec_mean
         # s = torch.exp(self.decoder.log_s)
         # std_z = torch.from_numpy(np.random.normal(0, 1, size=dec_mean.size())).float()
@@ -87,12 +93,12 @@ class VAE(torch.nn.Module):
         mean_sq = self.z_mean * self.z_mean
         log_term = torch.sum(torch.log(self.z_sigma))
         trace_term = torch.sum(self.z_sigma)    
-        return 0.5 * torch.mean(trace_term + mean_sq - log_term)
+        return 0.5 * torch.mean(trace_term + mean_sq - log_term - self.d)
 
     def re_loss(self, x, x_hat):
         s = torch.exp(self.decoder.log_s)
         mse_loss = criterion(x, x_hat)
-        log_term = 2 * self.D * self.decoder.log_s
+        log_term = 2 * self.D * self.decoder.log_s + np.log(2*np.pi)
         return 0.5 * (mse_loss/(s*s) + log_term)
 
 
@@ -100,11 +106,11 @@ class VAE(torch.nn.Module):
 
 if __name__ == '__main__':
 
-    D = 20
-    d = 7
+    D = 1
+    d = 1
     num_points = 10000
-    batch_size = 32
-
+    batch_size = 2
+    lr = 0.001
     dataset = MyDataSet(d, D, num_points)
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size,
                                              shuffle=True, num_workers=2)
@@ -112,7 +118,7 @@ if __name__ == '__main__':
     print('Number of samples: ', len(dataset))
 
     vae = VAE(d, D)
-    optimizer = optim.Adam(vae.parameters(), lr=0.0001)
+    optimizer = optim.Adam(vae.parameters(), lr=lr)
     l = None
     for epoch in range(100):
         for i, data in enumerate(dataloader, 0):
@@ -124,6 +130,3 @@ if __name__ == '__main__':
             optimizer.step()
             l = loss.data[0]
         print(epoch, l)
-
-    plt.imshow(vae(inputs).data[0].numpy().reshape(28, 28), cmap='gray')
-    plt.show(block=True)
