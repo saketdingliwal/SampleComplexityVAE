@@ -116,12 +116,12 @@ class VAE(torch.nn.Module):
 
     def re_loss_direct(self, x):
         log_term = (self.D/2) * (np.log(2*np.pi) + 2*self.decoder.log_s)
-        
         s = torch.exp(self.decoder.log_s)
 
         x_mat = torch.matmul(self.decoder.W.weight, self.encoder.M.weight) - torch.eye(self.D)
         x_vect = torch.matmul(x, x_mat)
         norm_term = torch.mean(x_vect * x_vect)/(2*s*s)
+        # print (norm_term)
 
         W = self.decoder.W.weight
         W_T = torch.transpose(W, 0, 1)
@@ -129,6 +129,8 @@ class VAE(torch.nn.Module):
         trace_diag = torch.diagonal(trace_mat)
         S = torch.exp(self.encoder.log_S)
         trace_term = torch.sum(trace_diag * S)/(2*s*s)
+        # print (log_term)
+        # print (trace_term)
 
         return log_term + norm_term + trace_term
 
@@ -151,9 +153,14 @@ class VAE(torch.nn.Module):
         diff_hat = np.matmul(z, mat.T)
         diff_hat_sq = diff_hat * diff_hat
 
-        norm_term = np.mean(diff_hat_sq)/(2*sigma*sigma)
+        norm_term = np.mean(diff_hat_sq)/(sigma*sigma)
+        return norm_term
+        s = np.exp(self.decoder.log_s)
+        ratio = s/sigma
+        ratio_sq = ratio * ratio
+        const_term = self.D * (ratio_sq - np.log(ratio_sq) -1)
 
-        s = torch.exp(self.decoder.log_s)
+        return 0.5*(norm_term + const_term)
 
         # const_term = 
 
@@ -182,8 +189,8 @@ class VAE(torch.nn.Module):
 
 if __name__ == '__main__':
 
-    D = 1
-    d = 1
+    D = 10
+    d = 5
     num_points = 10000
     batch_size = 100
     lr = 0.001
@@ -193,11 +200,11 @@ if __name__ == '__main__':
                                              shuffle=True, num_workers=2)
 
     print('Number of samples: ', len(dataset))
-    print (dataset.A)
-    print (dataset.sigma)
+    # print (dataset.A)
+    # print (dataset.sigma)
     # s = 2 * np.sqrt(dataset.A * dataset.A + dataset.sigma * dataset.sigma) ## SC 
     s = dataset.sigma
-    print (s)
+    # print (s)
     vae = VAE(d, D, s)
     optimizer = optim.Adam(vae.parameters(), lr=lr)
     l = None
