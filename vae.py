@@ -41,18 +41,20 @@ class Encoder(torch.nn.Module):
     def __init__(self, d, D):
         super(Encoder, self).__init__()
         self.M = torch.nn.Linear(D, d, bias=False)
-        self.log_S = torch.rand((d, 1), requires_grad=True)
+        self.log_S = torch.nn.Parameter(torch.rand((d, 1)))
 
     def forward(self, x):
         return self.M(x)
 
 
 class Decoder(torch.nn.Module):
-    def __init__(self, d, D):
+    def __init__(self, d, D, set_s=None):
         super(Decoder, self).__init__()
         self.W = torch.nn.Linear(d, D, bias=False)
-        # self.log_s = torch.rand(1, requires_grad= True)
-        self.log_s = Variable(torch.log(torch.Tensor([SIGMA])), requires_grad=False)
+        if set_s is None:
+            self.log_s = torch.nn.Parameter(torch.rand((1,)))
+        else:
+            self.log_s = torch.nn.Parameter(torch.log(torch.Tensor([set_s])), requires_grad=False)
         # print (self.log_s)
 
     def forward(self, x):
@@ -61,14 +63,12 @@ class Decoder(torch.nn.Module):
 
 class VAE(torch.nn.Module):
 
-    def __init__(self, d, D):
+    def __init__(self, d, D, set_decoder_s=None):
         super(VAE, self).__init__()
         self.d = d
         self.D = D
         self.encoder = Encoder(d, D)
-        self.decoder = Decoder(d, D)
-        # self._enc_mu = torch.nn.Linear(100, 8)
-        # self._enc_log_sigma = torch.nn.Linear(100, 8)
+        self.decoder = Decoder(d, D, set_decoder_s)
 
     def _sample_latent(self, mu, sigma):
         """
@@ -115,9 +115,10 @@ class VAE(torch.nn.Module):
         return self.kl_loss() + self.re_loss(x, x_hat)
 
     def re_loss_direct(self, x):
-        log_term = (self.D/2) * np.log(2*np.pi) + self.D * self.decoder.log_s
+        log_term = (self.D/2) * (np.log(2*np.pi) + 2*self.decoder.log_s)
         
         s = torch.exp(self.decoder.log_s)
+
         x_mat = torch.matmul(self.decoder.W.weight, self.encoder.M.weight) - torch.eye(self.D)
         x_vect = torch.matmul(x, x_mat)
         norm_term = torch.mean(x_vect * x_vect)/(2*s*s)
@@ -149,7 +150,13 @@ class VAE(torch.nn.Module):
         z = np.random.normal(0, 1, size=(num_samples,self.d))
         diff_hat = np.matmul(z, mat.T)
         diff_hat_sq = diff_hat * diff_hat
-        return np.sum(diff_hat_sq)/(2*sigma*sigma*num_samples)
+
+        norm_term = np.mean(diff_hat_sq)/(2*sigma*sigma)
+
+        s = torch.exp(self.decoder.log_s)
+
+        # const_term = 
+
 
     def avg_h(self, A, sigma, num_samples):
         v = np.random.normal(0, 1, size=(num_samples,self.d))
@@ -175,19 +182,23 @@ class VAE(torch.nn.Module):
 
 if __name__ == '__main__':
 
-    D = 10
-    d = 5
+    D = 1
+    d = 1
     num_points = 10000
     batch_size = 100
     lr = 0.001
-    max_epochs = 100
+    max_epochs = 500
     dataset = MyDataSet(d, D, num_points)
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size,
                                              shuffle=True, num_workers=2)
 
     print('Number of samples: ', len(dataset))
-
-    vae = VAE(d, D)
+    print (dataset.A)
+    print (dataset.sigma)
+    # s = 2 * np.sqrt(dataset.A * dataset.A + dataset.sigma * dataset.sigma) ## SC 
+    s = dataset.sigma
+    print (s)
+    vae = VAE(d, D, s)
     optimizer = optim.Adam(vae.parameters(), lr=lr)
     l = None
     epochs = []
@@ -204,10 +215,13 @@ if __name__ == '__main__':
             optimizer.step()
             l = loss
             losses.append(l.data[0])
-
+        print (epoch, "M", vae.encoder.M.weight)
+        print (epoch, "W", vae.decoder.W.weight)
+        print (epoch, "Log S",vae.encoder.log_S)
+        print (epoch, "Log s",vae.decoder.log_s)
         vae_loss = np.mean(losses)
-        g_loss = vae.avg_g(dataset.A, dataset.sigma, 100)
-        h_loss = vae.avg_h(dataset.A, dataset.sigma, 100)
+        g_loss = vae.avg_g(dataset.A, dataset.sigma, 10000)
+        h_loss = vae.avg_h(dataset.A, dataset.sigma, 10000)
         epochs.append(epoch)
         vae_losses.append(vae_loss)
         g_losses.append(g_loss)
@@ -215,9 +229,10 @@ if __name__ == '__main__':
         print(epoch, vae_loss)
         print(epoch, g_loss)
         print(epoch, h_loss)
+        print ("----------------")
 
     plt.plot(epochs, vae_losses, label="VAE Objective")
-    plt.plot(epochs, g_losses, label="E[g(W,s2)]")
-    plt.plot(epochs, h_losses, label="E[h(M,S)]")
+    # plt.plot(epochs, g_losses, label="E[g(W,s2)]")
+    # plt.plot(epochs, h_losses, label="E[h(M,S)]")
     plt.legend()
     plt.savefig('run1.png')
