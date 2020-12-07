@@ -12,16 +12,21 @@ import matplotlib.pyplot as plt
 
 
 criterion = nn.MSELoss()
-SIGMA = 1e-2
+SIGMA = 1e-1
 
 
 
 
 class MyDataSet(torch.utils.data.Dataset):
     def __init__(self, d, D, size):
+        self.D = D
+        self.d = d
         v = np.random.normal(0, 1, size=(size,d))
         a = np.random.random(size=(D, d))
         self.A, _ = np.linalg.qr(a)
+        # if np.sum(self.A)== 1: 
+        #     assert D==d and d==1, "Only when D=d=1"
+        #     _, self.A = np.linalg.qr(a)
         self.sigma = SIGMA
         noise = np.random.normal(0, 1, size=(size,D))
         x_train = np.matmul(v, self.A.T) + self.sigma * noise
@@ -29,7 +34,11 @@ class MyDataSet(torch.utils.data.Dataset):
         self.x = x_train_tensor
         
     def __getitem__(self, index):
-        return self.x[index]
+        v = np.random.normal(0, 1, size=(1,d))
+        noise = np.random.normal(0, 1, size=(1,self.D))
+        x_train = np.matmul(v, self.A.T) + self.sigma * noise
+        x_train_tensor = torch.from_numpy(x_train).float()
+        return x_train_tensor
 
     def __len__(self):
         return len(self.x)
@@ -146,16 +155,19 @@ class VAE(torch.nn.Module):
     def total_loss_direct(self, x):
         return self.kl_loss_direct(x) + self.re_loss_direct(x)
 
-    def avg_g(self, A, sigma, num_samples):
+    def avg_g(self, A, sigma, adjusted, num_samples):
         W = self.decoder.W.weight.detach().numpy()
         mat = A - W
+        if adjusted:
+            if self.d==1 and self.D==1:
+                mat = np.abs(A) - np.abs(W)
+
         z = np.random.normal(0, 1, size=(num_samples,self.d))
         diff_hat = np.matmul(z, mat.T)
         diff_hat_sq = diff_hat * diff_hat
 
         norm_term = np.mean(diff_hat_sq)/(sigma*sigma)
-        return norm_term
-        s = np.exp(self.decoder.log_s)
+        s = np.exp(self.decoder.log_s.detach().numpy())
         ratio = s/sigma
         ratio_sq = ratio * ratio
         const_term = self.D * (ratio_sq - np.log(ratio_sq) -1)
@@ -165,7 +177,7 @@ class VAE(torch.nn.Module):
         # const_term = 
 
 
-    def avg_h(self, A, sigma, num_samples):
+    def avg_h(self, A, sigma, adjusted, num_samples):
         v = np.random.normal(0, 1, size=(num_samples,self.d))
         noise = np.random.normal(0, 1, size=(num_samples,D))
         x = np.matmul(v, A.T) + sigma * noise
@@ -173,10 +185,13 @@ class VAE(torch.nn.Module):
         S = np.exp(log_S)
         P = A.T/(1+sigma*sigma)
         M = self.encoder.M.weight.detach().numpy()
-
         trace_term = (1+(1/(sigma*sigma)))*np.sum(S)
         log_term = self.d * np.log(sigma*sigma) - self.d * np.log(1 + sigma*sigma) - np.sum(log_S)
-        mat_x = np.matmul(x, (P-M).T)
+        mat = P - M
+        if adjusted:
+            if self.d==1 and self.D==1:
+                mat = np.abs(P) - np.abs(M)
+        mat_x = np.matmul(x, mat.T)
         mat_x_sq = np.sum(mat_x * mat_x)/num_samples
         mat_term = (1+(1/(sigma*sigma))) * mat_x_sq
 
@@ -189,12 +204,21 @@ class VAE(torch.nn.Module):
 
 if __name__ == '__main__':
 
-    D = 10
-    d = 5
+    adjusted = 1
+    s_trainable = 0
+    Non = 'Non-trainable > A^2 + sigma^2 '
+    goal = 'Gold'
+    if adjusted:
+        goal = 'Adjusted'
+    if s_trainable:
+        Non = 'Trainable'
+
+    D = 1
+    d = 1
     num_points = 10000
     batch_size = 100
     lr = 0.001
-    max_epochs = 500
+    max_epochs = 150
     dataset = MyDataSet(d, D, num_points)
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size,
                                              shuffle=True, num_workers=2)
@@ -202,10 +226,13 @@ if __name__ == '__main__':
     print('Number of samples: ', len(dataset))
     # print (dataset.A)
     # print (dataset.sigma)
-    # s = 2 * np.sqrt(dataset.A * dataset.A + dataset.sigma * dataset.sigma) ## SC 
-    s = dataset.sigma
+    s = 2 * np.sqrt(dataset.A[0][0] * dataset.A[0][0] + dataset.sigma * dataset.sigma) ## SC 
+    # s = dataset.sigma
     # print (s)
-    vae = VAE(d, D, s)
+    if s_trainable:
+        vae = VAE(d, D)
+    else:
+        vae = VAE(d, D, s)
     optimizer = optim.Adam(vae.parameters(), lr=lr)
     l = None
     epochs = []
@@ -222,13 +249,14 @@ if __name__ == '__main__':
             optimizer.step()
             l = loss
             losses.append(l.data[0])
+        print (epoch, "A", dataset.A[0][0])
         print (epoch, "M", vae.encoder.M.weight)
         print (epoch, "W", vae.decoder.W.weight)
         print (epoch, "Log S",vae.encoder.log_S)
         print (epoch, "Log s",vae.decoder.log_s)
         vae_loss = np.mean(losses)
-        g_loss = vae.avg_g(dataset.A, dataset.sigma, 10000)
-        h_loss = vae.avg_h(dataset.A, dataset.sigma, 10000)
+        g_loss = vae.avg_g(dataset.A, dataset.sigma, adjusted, 10000)
+        h_loss = vae.avg_h(dataset.A, dataset.sigma, adjusted, 10000)
         epochs.append(epoch)
         vae_losses.append(vae_loss)
         g_losses.append(g_loss)
@@ -238,8 +266,56 @@ if __name__ == '__main__':
         print(epoch, h_loss)
         print ("----------------")
 
-    plt.plot(epochs, vae_losses, label="VAE Objective")
-    # plt.plot(epochs, g_losses, label="E[g(W,s2)]")
-    # plt.plot(epochs, h_losses, label="E[h(M,S)]")
-    plt.legend()
-    plt.savefig('run1.png')
+
+    fig, ax1 = plt.subplots(1,2)
+    goals = ['Encoder {} Goal'.format(goal), 'Decoder {} Goal'.format(goal)]
+    vals = [h_losses, g_losses]
+
+    for i in range(2):
+        loss_color = 'green'
+        ax1[i].set_xlabel('epochs')
+        ax1[i].set_ylabel('VAE loss', color=loss_color)
+        ax1[i].plot(epochs, vae_losses, color=loss_color)
+        ax1[i].tick_params(axis='y', labelcolor=loss_color)
+
+        ax2 = ax1[i].twinx()  # instantiate a second axes that shares the same x-axis
+
+        goal_color = 'blue'
+
+        ax2.set_ylabel(goals[i], color=goal_color)  # we already handled the x-label with ax1
+        ax2.plot(epochs, vals[i], color=goal_color)
+        ax2.tick_params(axis='y', labelcolor=goal_color)
+
+
+    sigma_2 = dataset.sigma * dataset.sigma
+    sigma_val = str(round(sigma_2,4))
+    if s_trainable:
+        s_val = str(round(torch.exp(vae.decoder.log_s).detach().numpy()[0],3))
+    else:
+        s_val = str(round(s*s,4))
+    P = dataset.A.T/(1+sigma_2)
+    P_val = str(round(P[0][0], 3))
+    Q = sigma_2/ (1 + sigma_2)
+    Q_val = str(round(Q,3))
+    A_val = round(dataset.A[0][0], 3)
+    M_val = str(round(vae.encoder.M.weight.detach().numpy()[0][0],3))
+    W_val = str(round(vae.decoder.W.weight.detach().numpy()[0][0],3))
+    S_val = str(round(torch.exp(vae.encoder.log_S).detach().numpy()[0][0],3))
+
+    fig.tight_layout()  # otherwise the right y-label is slightly clipped
+    fig.subplots_adjust(top=0.80)  # otherwise the right y-label is slightly clipped
+
+    title ='''  {} Goal Values
+                Case: D=d=1, N->Infinity, s^2 - {}
+                A = {} , sigma^2 = {} , s^2 = {} , P = {}, Q = {} 
+                Learned values: M = {}, W = {}, S = {} '''.format(goal, Non, A_val, sigma_val, s_val, P_val, Q_val, M_val, W_val, S_val)
+    file_name = '_'.join(title.split()) + '.png'
+    plt.suptitle(title, color='red', y=0.98)
+    plt.savefig(file_name)
+
+
+
+    # plt.plot(epochs, vae_losses, label="VAE Objective")
+    # # plt.plot(epochs, g_losses, label="E[g(W,s2)]")
+    # # plt.plot(epochs, h_losses, label="E[h(M,S)]")
+    # plt.legend()
