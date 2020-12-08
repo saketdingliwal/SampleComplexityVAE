@@ -33,16 +33,23 @@ class MyDataSet(torch.utils.data.Dataset):
         x_train_tensor = torch.from_numpy(x_train).float()
         self.x = x_train_tensor
         
-    def __getitem__(self, index):
-        v = np.random.normal(0, 1, size=(1,d))
-        noise = np.random.normal(0, 1, size=(1,self.D))
+    def change_size(self, size):
+        v = np.random.normal(0, 1, size=(size,d))
+        noise = np.random.normal(0, 1, size=(size,self.D))
         x_train = np.matmul(v, self.A.T) + self.sigma * noise
         x_train_tensor = torch.from_numpy(x_train).float()
-        return x_train_tensor
+        self.x = x_train_tensor
+        
+    def __getitem__(self, index):
+        # v = np.random.normal(0, 1, size=(1,d))
+        # noise = np.random.normal(0, 1, size=(1,self.D))
+        # x_train = np.matmul(v, self.A.T) + self.sigma * noise
+        # x_train_tensor = torch.from_numpy(x_train).float()
+        # return x_train_tensor
+        return self.x[index]
 
     def __len__(self):
         return len(self.x)
-
 
 
 
@@ -174,7 +181,23 @@ class VAE(torch.nn.Module):
 
         return 0.5*(norm_term + const_term)
 
-        # const_term = 
+
+    def expected_g(self, A, sigma, adjusted):
+        W = self.decoder.W.weight.detach().numpy()
+        mat = A - W
+        if adjusted:
+            if self.d==1 and self.D==1:
+                mat = np.abs(A) - np.abs(W)
+
+        diff_hat_sq = np.trace(np.matmul(mat,mat.T))
+        norm_term = np.mean(diff_hat_sq)/(sigma*sigma)
+
+        s = np.exp(self.decoder.log_s.detach().numpy())
+        ratio = s/sigma
+        ratio_sq = ratio * ratio
+        const_term = self.D * (ratio_sq - np.log(ratio_sq) -1)
+
+        return 0.5*(norm_term + const_term)
 
 
     def avg_h(self, A, sigma, adjusted, num_samples):
@@ -197,7 +220,23 @@ class VAE(torch.nn.Module):
 
         return 0.5 * (trace_term + mat_term + log_term - d)
 
-
+    def expected_h(self, A, sigma, adjusted):
+        log_S = self.encoder.log_S.detach().numpy()
+        S = np.exp(log_S)
+        P = A.T/(1+sigma*sigma)
+        M = self.encoder.M.weight.detach().numpy()
+        Q_inv = (1+(1/(sigma*sigma)))
+        trace_term = Q_inv*np.sum(S)
+        log_term = self.d * np.log(sigma*sigma) - self.d * np.log(1 + sigma*sigma) - np.sum(log_S)
+        mat = P - M
+        if adjusted:
+            if self.d==1 and self.D==1:
+                mat = np.abs(P) - np.abs(M)
+        
+        mat_mid = np.matmul(A,A.T) + sigma*sigma * np.eye(A.shape[0])
+        mat_cumm = Q_inv* np.matmul(np.matmul(mat,mat_mid),mat.T)
+        mat_term = np.trace(mat_cumm)
+        return 0.5 * (trace_term + mat_term + log_term - d)
 
 
 
@@ -206,7 +245,7 @@ if __name__ == '__main__':
 
     adjusted = 1
     s_trainable = 0
-    Non = 'Non-trainable > A^2 + sigma^2 '
+    Non = 'Non-trainable < A^2 + sigma^2 '
     goal = 'Gold'
     if adjusted:
         goal = 'Adjusted'
@@ -226,8 +265,8 @@ if __name__ == '__main__':
     print('Number of samples: ', len(dataset))
     # print (dataset.A)
     # print (dataset.sigma)
-    s = 2 * np.sqrt(dataset.A[0][0] * dataset.A[0][0] + dataset.sigma * dataset.sigma) ## SC 
-    # s = dataset.sigma
+    # s = 2 * np.sqrt(dataset.A[0][0] * dataset.A[0][0] + dataset.sigma * dataset.sigma) ## SC 
+    s = dataset.sigma
     # print (s)
     if s_trainable:
         vae = VAE(d, D)
@@ -255,15 +294,18 @@ if __name__ == '__main__':
         print (epoch, "Log S",vae.encoder.log_S)
         print (epoch, "Log s",vae.decoder.log_s)
         vae_loss = np.mean(losses)
-        g_loss = vae.avg_g(dataset.A, dataset.sigma, adjusted, 10000)
-        h_loss = vae.avg_h(dataset.A, dataset.sigma, adjusted, 10000)
+        g_loss = vae.expected_g(dataset.A, dataset.sigma, adjusted)
+        h_loss = vae.expected_h(dataset.A, dataset.sigma, adjusted)
+
+
         epochs.append(epoch)
         vae_losses.append(vae_loss)
         g_losses.append(g_loss)
         h_losses.append(h_loss)
-        print(epoch, vae_loss)
-        print(epoch, g_loss)
-        print(epoch, h_loss)
+
+        print(epoch, "VAE Loss", vae_loss)
+        print(epoch, "g", g_loss)
+        print(epoch, "h", h_loss)
         print ("----------------")
 
 
