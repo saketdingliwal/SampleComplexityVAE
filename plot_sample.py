@@ -2,29 +2,33 @@ import os,sys
 import numpy as np 
 import matplotlib.pyplot as plt
 
+pre = '_2'
+quantile = 0.8
+goal = 'Adjusted'
+ns = [50, 100, 250, 500, 1000, 5000, 10000, 50000]
+vae_loss = np.load('vae{}.npy'.format(pre))
+g_loss = np.load('g{}.npy'.format(pre))
+h_loss = np.load('h{}.npy'.format(pre))
 
-vae_loss = np.load('vae.npy')
-g_loss = np.load('g.npy')
-h_loss = np.load('h.npy')
 
-ns = vae_loss.shape[0]
+# ns = vae_loss.shape[0]
 
 vae_losses = []
 g_losses = []
 h_losses = []
 
-ns = [100, 500, 1000, 5000, 10000]
+
+# ns = [100, 500, 1000, 5000, 10000]
 
 for idx,n in enumerate(ns):
-    g = np.quantile(g_loss[idx], 0.95)
-    h = np.quantile(h_loss[idx], 0.95)
-    vae = np.quantile(vae_loss[idx], 0.95)
+    g = np.quantile(g_loss[idx], quantile)
+    h = np.quantile(h_loss[idx], quantile)
+    vae = np.quantile(vae_loss[idx], quantile)
 
     vae_losses.append(vae)
     g_losses.append(g)
     h_losses.append(h)
 
-goal = 'Gold'
 fig, ax1 = plt.subplots(1,2)
 goals = ['Encoder {} Goal'.format(goal), 'Decoder {} Goal'.format(goal)]
 vals = [h_losses, g_losses]
@@ -64,10 +68,14 @@ for i in range(2):
 fig.tight_layout()  # otherwise the right y-label is slightly clipped
 fig.subplots_adjust(top=0.80)  # otherwise the right y-label is slightly clipped
 
+title = ''' Adjusted Goal Values for Sample Complexity Study
+            Case: D=d=1, N->finite, s^2 - Non-trainable
+            with probability at least {} the gold value is achieved for any n'''.format(quantile)
+
 # title ='''  {} Goal Values for Sample Complexity
 #             Case: D=d=1, N->Finite, s^2 - {}
 #             A = {} , sigma^2 = {} , s^2 = {} , P = {}, Q = {} '''.format(goal, Non, A_val, sigma_val, s_val, P_val, Q_val)
-title = 'experiment 1 d=D=1 sample complexity'
+# title = 'experiment 1 d=D=1 sample complexity'
 file_name = '_'.join(title.split()) + '.png'
 plt.suptitle(title, color='red', y=0.98)
 plt.savefig(file_name)

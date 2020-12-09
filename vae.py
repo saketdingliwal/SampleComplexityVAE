@@ -9,6 +9,8 @@ from torch import nn
 import matplotlib.pyplot as plt
 import scipy
 import matplotlib.pyplot as plt
+from scipy.linalg import svdvals
+
 
 
 criterion = nn.MSELoss()
@@ -41,12 +43,12 @@ class MyDataSet(torch.utils.data.Dataset):
         self.x = x_train_tensor
         
     def __getitem__(self, index):
-        # v = np.random.normal(0, 1, size=(1,d))
-        # noise = np.random.normal(0, 1, size=(1,self.D))
-        # x_train = np.matmul(v, self.A.T) + self.sigma * noise
-        # x_train_tensor = torch.from_numpy(x_train).float()
-        # return x_train_tensor
-        return self.x[index]
+        v = np.random.normal(0, 1, size=(1,d))
+        noise = np.random.normal(0, 1, size=(1,self.D))
+        x_train = np.matmul(v, self.A.T) + self.sigma * noise
+        x_train = x_train.reshape((self.D,))
+        x_train_tensor = torch.from_numpy(x_train).float()
+        return x_train_tensor
 
     def __len__(self):
         return len(self.x)
@@ -136,17 +138,17 @@ class VAE(torch.nn.Module):
 
         x_mat = torch.matmul(self.decoder.W.weight, self.encoder.M.weight) - torch.eye(self.D)
         x_vect = torch.matmul(x, x_mat)
-        norm_term = torch.mean(x_vect * x_vect)/(2*s*s)
-        # print (norm_term)
+        x_vect_sq = torch.mul(x_vect, x_vect)
+        x_vect_sq_sum = torch.sum(x_vect_sq, axis=-1)
+        norm_term = torch.mean(x_vect_sq_sum)/(2*s*s)
 
         W = self.decoder.W.weight
         W_T = torch.transpose(W, 0, 1)
-        trace_mat = torch.matmul(W,W_T)
-        trace_diag = torch.diagonal(trace_mat)
+        trace_mat = torch.matmul(W_T,W)
         S = torch.exp(self.encoder.log_S)
-        trace_term = torch.sum(trace_diag * S)/(2*s*s)
-        # print (log_term)
-        # print (trace_term)
+        trace_diag = torch.diagonal(trace_mat).reshape(S.shape)
+        diag_new = trace_diag * S
+        trace_term = torch.sum(diag_new)/(2*s*s)
 
         return log_term + norm_term + trace_term
 
@@ -154,7 +156,9 @@ class VAE(torch.nn.Module):
     def kl_loss_direct(self, x):
         S = torch.exp(self.encoder.log_S)
         mean = self.encoder(x)
-        mean_term = torch.mean(mean * mean)
+        mean_sq = torch.mul(mean,mean)
+        mean_sum = torch.sum(mean_sq, axis=-1)
+        mean_term = torch.mean(mean_sum)
         trace_term = torch.sum(S)
         log_term = torch.sum(self.encoder.log_S)
         return 0.5 * (trace_term + mean_term - log_term - self.d)
@@ -166,8 +170,9 @@ class VAE(torch.nn.Module):
         W = self.decoder.W.weight.detach().numpy()
         mat = A - W
         if adjusted:
-            if self.d==1 and self.D==1:
-                mat = np.abs(A) - np.abs(W)
+            mat = np.diag(svdvals(A) - svdvals(W))
+            # if self.d==1 and self.D==1:
+            #     mat = np.abs(A) - np.abs(W)
 
         z = np.random.normal(0, 1, size=(num_samples,self.d))
         diff_hat = np.matmul(z, mat.T)
@@ -186,8 +191,14 @@ class VAE(torch.nn.Module):
         W = self.decoder.W.weight.detach().numpy()
         mat = A - W
         if adjusted:
-            if self.d==1 and self.D==1:
-                mat = np.abs(A) - np.abs(W)
+            assert A.shape[0] == A.shape[1], "Only valid when D=d"
+            # print (A)
+            mat = np.diag(svdvals(A) - svdvals(W))
+            print ("SVD values of A", svdvals(A))
+            print ("SVD values for W", svdvals(W))
+            # print (mat)
+            # if self.d==1 and self.D==1:
+            #     mat = np.abs(A) - np.abs(W)
 
         diff_hat_sq = np.trace(np.matmul(mat,mat.T))
         norm_term = np.mean(diff_hat_sq)/(sigma*sigma)
@@ -211,9 +222,11 @@ class VAE(torch.nn.Module):
         trace_term = (1+(1/(sigma*sigma)))*np.sum(S)
         log_term = self.d * np.log(sigma*sigma) - self.d * np.log(1 + sigma*sigma) - np.sum(log_S)
         mat = P - M
-        if adjusted:
-            if self.d==1 and self.D==1:
-                mat = np.abs(P) - np.abs(M)
+        if adjusted:            
+            mat = np.diag(svdvals(P) - svdvals(M))
+
+            # if self.d==1 and self.D==1:
+            #     mat = np.abs(P) - np.abs(M)
         mat_x = np.matmul(x, mat.T)
         mat_x_sq = np.sum(mat_x * mat_x)/num_samples
         mat_term = (1+(1/(sigma*sigma))) * mat_x_sq
@@ -225,17 +238,23 @@ class VAE(torch.nn.Module):
         S = np.exp(log_S)
         P = A.T/(1+sigma*sigma)
         M = self.encoder.M.weight.detach().numpy()
+
         Q_inv = (1+(1/(sigma*sigma)))
         trace_term = Q_inv*np.sum(S)
-        log_term = self.d * np.log(sigma*sigma) - self.d * np.log(1 + sigma*sigma) - np.sum(log_S)
+        log_term = self.d * (np.log(sigma*sigma) - np.log(1 + sigma*sigma)) - np.sum(log_S)
         mat = P - M
         if adjusted:
-            if self.d==1 and self.D==1:
-                mat = np.abs(P) - np.abs(M)
+            assert A.shape[0] == A.shape[1], "Only valid when D=d"
+            mat = np.diag(svdvals(P) - svdvals(M))
+            print ("SVD vals of P", svdvals(P))
+            print ("SVD vals of M", svdvals(M))
+            # print (mat)
+            # if self.d==1 and self.D==1:
+            #     mat = np.abs(P) - np.abs(M)
         
         mat_mid = np.matmul(A,A.T) + sigma*sigma * np.eye(A.shape[0])
-        mat_cumm = Q_inv* np.matmul(np.matmul(mat,mat_mid),mat.T)
-        mat_term = np.trace(mat_cumm)
+        mat_cumm = np.matmul(np.matmul(mat,mat_mid),mat.T)
+        mat_term = Q_inv * np.trace(mat_cumm)
         return 0.5 * (trace_term + mat_term + log_term - d)
 
 
@@ -252,12 +271,12 @@ if __name__ == '__main__':
     if s_trainable:
         Non = 'Trainable'
 
-    D = 1
-    d = 1
+    D = 5
+    d = 5
     num_points = 10000
-    batch_size = 100
-    lr = 0.001
-    max_epochs = 150
+    batch_size = 1000
+    lr = 1
+    max_epochs = 1000
     dataset = MyDataSet(d, D, num_points)
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size,
                                              shuffle=True, num_workers=2)
@@ -288,11 +307,11 @@ if __name__ == '__main__':
             optimizer.step()
             l = loss
             losses.append(l.data[0])
-        print (epoch, "A", dataset.A[0][0])
-        print (epoch, "M", vae.encoder.M.weight)
-        print (epoch, "W", vae.decoder.W.weight)
-        print (epoch, "Log S",vae.encoder.log_S)
-        print (epoch, "Log s",vae.decoder.log_s)
+        # print (epoch, "A", dataset.A[0][0])
+        # print (epoch, "M", vae.encoder.M.weight)
+        # print (epoch, "W", vae.decoder.W.weight)
+        print (epoch, "S", torch.exp(vae.encoder.log_S))
+        print (epoch, "s", torch.exp(vae.decoder.log_s))
         vae_loss = np.mean(losses)
         g_loss = vae.expected_g(dataset.A, dataset.sigma, adjusted)
         h_loss = vae.expected_h(dataset.A, dataset.sigma, adjusted)
