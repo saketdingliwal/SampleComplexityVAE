@@ -43,7 +43,7 @@ class MyDataSet(torch.utils.data.Dataset):
         self.x = x_train_tensor
         
     def __getitem__(self, index):
-        v = np.random.normal(0, 1, size=(1,d))
+        v = np.random.normal(0, 1, size=(1,self.d))
         noise = np.random.normal(0, 1, size=(1,self.D))
         x_train = np.matmul(v, self.A.T) + self.sigma * noise
         x_train = x_train.reshape((self.D,))
@@ -260,7 +260,9 @@ class VAE(torch.nn.Module):
 
 
 
-if __name__ == '__main__':
+
+
+def run():
 
     adjusted = 1
     s_trainable = 0
@@ -271,12 +273,12 @@ if __name__ == '__main__':
     if s_trainable:
         Non = 'Trainable'
 
-    D = 5
-    d = 5
+    D = 10
+    d = 10
     num_points = 10000
     batch_size = 1000
-    lr = 1
-    max_epochs = 1000
+    lr = 0.1
+    max_epochs = 150
     dataset = MyDataSet(d, D, num_points)
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size,
                                              shuffle=True, num_workers=2)
@@ -310,11 +312,12 @@ if __name__ == '__main__':
         # print (epoch, "A", dataset.A[0][0])
         # print (epoch, "M", vae.encoder.M.weight)
         # print (epoch, "W", vae.decoder.W.weight)
-        print (epoch, "S", torch.exp(vae.encoder.log_S))
-        print (epoch, "s", torch.exp(vae.decoder.log_s))
+        # print (epoch, "S", torch.exp(vae.encoder.log_S))
+        # print (epoch, "s", torch.exp(vae.decoder.log_s))
         vae_loss = np.mean(losses)
         g_loss = vae.expected_g(dataset.A, dataset.sigma, adjusted)
-        h_loss = vae.expected_h(dataset.A, dataset.sigma, adjusted)
+        h_loss = vae.expected_g(dataset.A, dataset.sigma, 0)
+        # h_loss = vae.expected_h(dataset.A, dataset.sigma, adjusted)
 
 
         epochs.append(epoch)
@@ -329,7 +332,8 @@ if __name__ == '__main__':
 
 
     fig, ax1 = plt.subplots(1,2)
-    goals = ['Encoder {} Goal'.format(goal), 'Decoder {} Goal'.format(goal)]
+    # goals = ['Encoder {} Goal'.format(goal), 'Decoder {} Goal'.format(goal)]
+    goals = ['Gold Decoder Goal g(theta)', 'Adjusted Decoder Goal g_hat(theta)']
     vals = [h_losses, g_losses]
 
     for i in range(2):
@@ -348,28 +352,33 @@ if __name__ == '__main__':
         ax2.tick_params(axis='y', labelcolor=goal_color)
 
 
-    sigma_2 = dataset.sigma * dataset.sigma
-    sigma_val = str(round(sigma_2,4))
-    if s_trainable:
-        s_val = str(round(torch.exp(vae.decoder.log_s).detach().numpy()[0],3))
-    else:
-        s_val = str(round(s*s,4))
-    P = dataset.A.T/(1+sigma_2)
-    P_val = str(round(P[0][0], 3))
-    Q = sigma_2/ (1 + sigma_2)
-    Q_val = str(round(Q,3))
-    A_val = round(dataset.A[0][0], 3)
-    M_val = str(round(vae.encoder.M.weight.detach().numpy()[0][0],3))
-    W_val = str(round(vae.decoder.W.weight.detach().numpy()[0][0],3))
-    S_val = str(round(torch.exp(vae.encoder.log_S).detach().numpy()[0][0],3))
+    # sigma_2 = dataset.sigma * dataset.sigma
+    # sigma_val = str(round(sigma_2,4))
+    # if s_trainable:
+    #     s_val = str(round(torch.exp(vae.decoder.log_s).detach().numpy()[0],3))
+    # else:
+    #     s_val = str(round(s*s,4))
+    # P = dataset.A.T/(1+sigma_2)
+    # P_val = str(round(P[0][0], 3))
+    # Q = sigma_2/ (1 + sigma_2)
+    # Q_val = str(round(Q,3))
+    # A_val = round(dataset.A[0][0], 3)
+    # M_val = str(round(vae.encoder.M.weight.detach().numpy()[0][0],3))
+    # W_val = str(round(vae.decoder.W.weight.detach().numpy()[0][0],3))
+    # S_val = str(round(torch.exp(vae.encoder.log_S).detach().numpy()[0][0],3))
 
     fig.tight_layout()  # otherwise the right y-label is slightly clipped
-    fig.subplots_adjust(top=0.80)  # otherwise the right y-label is slightly clipped
+    fig.subplots_adjust(top=0.90)  # otherwise the right y-label is slightly clipped
 
-    title ='''  {} Goal Values
-                Case: D=d=1, N->Infinity, s^2 - {}
-                A = {} , sigma^2 = {} , s^2 = {} , P = {}, Q = {} 
-                Learned values: M = {}, W = {}, S = {} '''.format(goal, Non, A_val, sigma_val, s_val, P_val, Q_val, M_val, W_val, S_val)
+    # title ='''  {} Goal Values
+    #             Case: D=d=1, N->Infinity, s^2 - {}
+    #             A = {} , sigma^2 = {} , s^2 = {} , P = {}, Q = {} 
+    #             Learned values: M = {}, W = {}, S = {} '''.format(goal, Non, A_val, sigma_val, s_val, P_val, Q_val, M_val, W_val, S_val)
+
+    title ='''  Decoder Goal Values (Gold and Adjusted)
+                Case: D=d, N->Infinity
+            '''
+
     file_name = '_'.join(title.split()) + '.png'
     plt.suptitle(title, color='red', y=0.98)
     plt.savefig(file_name)
@@ -380,3 +389,6 @@ if __name__ == '__main__':
     # # plt.plot(epochs, g_losses, label="E[g(W,s2)]")
     # # plt.plot(epochs, h_losses, label="E[h(M,S)]")
     # plt.legend()
+
+if __name__ == '__main__':
+    run()

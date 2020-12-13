@@ -3,7 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 pre = '_2'
-quantile = 0.8
+quantile = 0.85
 goal = 'Adjusted'
 ns = [50, 100, 250, 500, 1000, 5000, 10000, 50000]
 vae_loss = np.load('vae{}.npy'.format(pre))
@@ -26,8 +26,48 @@ for idx,n in enumerate(ns):
     vae = np.quantile(vae_loss[idx], quantile)
 
     vae_losses.append(vae)
-    g_losses.append(g)
-    h_losses.append(h)
+    g_losses.append(g*np.sqrt(n))
+    h_losses.append(h*n)
+
+# ns = [50, 100, 500, 1000, 5000, 10000, 50000]
+
+
+
+
+
+fig, ax1 = plt.subplots()
+loss_color = 'green'
+ax1.set_xlabel('number of samples (N)')
+ax1.set_xscale('log')
+ax1.set_ylabel('VAE loss', color=loss_color)
+ax1.plot(ns, vae_losses, color=loss_color)
+ax1.tick_params(axis='y', labelcolor=loss_color)
+
+ax2 = ax1.twinx()  # instantiate a second axes that shares the same x-axis
+
+goal_color = 'blue'
+
+ax2.set_ylabel('g_hat(theta) * sqrt(n)', color=goal_color)  # we already handled the x-label with ax1
+ax2.plot(ns, g_losses, color=goal_color)
+ax2.tick_params(axis='y', labelcolor=goal_color)
+title = '''
+        Rate of Learning Analysis
+        Case: D=d=1, N-> finite, delta = 0.15
+        Adjusted Goal * sqrt(n) is decreasing
+        '''
+# plt.title(title, color='red')
+plt.suptitle(title, color='red')
+
+fig.tight_layout()  # otherwise the right y-label is slightly clipped
+fig.subplots_adjust(top=0.80)  # otherwise the right y-label is slightly clipped
+plt.savefig('plot2.png')
+exit(0)
+
+
+
+
+
+
 
 fig, ax1 = plt.subplots(1,2)
 goals = ['Encoder {} Goal'.format(goal), 'Decoder {} Goal'.format(goal)]
@@ -78,4 +118,4 @@ title = ''' Adjusted Goal Values for Sample Complexity Study
 # title = 'experiment 1 d=D=1 sample complexity'
 file_name = '_'.join(title.split()) + '.png'
 plt.suptitle(title, color='red', y=0.98)
-plt.savefig(file_name)
+plt.savefig('plot.png')
