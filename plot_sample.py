@@ -2,14 +2,14 @@ import os,sys
 import numpy as np 
 import matplotlib.pyplot as plt
 
-pre = '_2'
-quantile = 0.85
+pre = '_d'
+quantile = 0.75
 goal = 'Adjusted'
-ns = [50, 100, 250, 500, 1000, 5000, 10000, 50000]
+# ns = [50, 100, 250, 500, 1000, 5000, 10000, 50000]
 vae_loss = np.load('vae{}.npy'.format(pre))
 g_loss = np.load('g{}.npy'.format(pre))
-h_loss = np.load('h{}.npy'.format(pre))
-
+# h_loss = np.load('h{}.npy'.format(pre))
+Ds = [1, 2, 3, 4, 5, 6, 7, 8]
 
 # ns = vae_loss.shape[0]
 
@@ -20,14 +20,18 @@ h_losses = []
 
 # ns = [100, 500, 1000, 5000, 10000]
 
-for idx,n in enumerate(ns):
+for idx,d in enumerate(Ds):
     g = np.quantile(g_loss[idx], quantile)
-    h = np.quantile(h_loss[idx], quantile)
+    # h = np.quantile(h_loss[idx], quantile)
     vae = np.quantile(vae_loss[idx], quantile)
 
     vae_losses.append(vae)
-    g_losses.append(g*np.sqrt(n))
-    h_losses.append(h*n)
+    # g_losses.append(g)
+    g_losses.append(g/(d*np.sqrt(d)))
+    # g_losses.append(g*np.sqrt(n))
+    # h_losses.append(h*n)
+    # h_losses.append(h*n)
+
 
 # ns = [50, 100, 500, 1000, 5000, 10000, 50000]
 
@@ -37,30 +41,31 @@ for idx,n in enumerate(ns):
 
 fig, ax1 = plt.subplots()
 loss_color = 'green'
-ax1.set_xlabel('number of samples (N)')
-ax1.set_xscale('log')
+# ax1.set_xlabel('number of samples (N)')
+ax1.set_xlabel('dimension (D=d)')
+# ax1.set_xscale('log')
 ax1.set_ylabel('VAE loss', color=loss_color)
-ax1.plot(ns, vae_losses, color=loss_color)
+ax1.plot(Ds, vae_losses, color=loss_color)
 ax1.tick_params(axis='y', labelcolor=loss_color)
 
 ax2 = ax1.twinx()  # instantiate a second axes that shares the same x-axis
 
 goal_color = 'blue'
 
-ax2.set_ylabel('g_hat(theta) * sqrt(n)', color=goal_color)  # we already handled the x-label with ax1
-ax2.plot(ns, g_losses, color=goal_color)
+ax2.set_ylabel('g_hat(theta)/(d*sqrt(d))', color=goal_color)  # we already handled the x-label with ax1
+ax2.plot(Ds, g_losses, color=goal_color)
 ax2.tick_params(axis='y', labelcolor=goal_color)
 title = '''
         Rate of Learning Analysis
-        Case: D=d=1, N-> finite, delta = 0.15
-        Adjusted Goal * sqrt(n) is decreasing
-        '''
+        Case: D=d, N=10000, delta = {}
+        Adjusted Goal / d^1.5 is decreasing
+        '''.format(1-quantile)
 # plt.title(title, color='red')
 plt.suptitle(title, color='red')
 
 fig.tight_layout()  # otherwise the right y-label is slightly clipped
 fig.subplots_adjust(top=0.80)  # otherwise the right y-label is slightly clipped
-plt.savefig('plot2.png')
+plt.savefig('plot_rate_d.png')
 exit(0)
 
 

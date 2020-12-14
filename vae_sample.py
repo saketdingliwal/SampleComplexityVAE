@@ -9,10 +9,76 @@ from torch import nn
 import matplotlib.pyplot as plt
 import scipy
 import matplotlib.pyplot as plt
-import * from vae
+import vae as var
 
 
 if __name__ == '__main__':
+    Ds = [1, 2, 3, 4, 5, 6, 7, 8]
+    # Ds = [10]
+    lr = 0.01
+    max_epochs = 1000
+    thresh = 1e-5
+    num_points = 50000
+    max_runs = 10
+    batch_size = 1000
+    s_trainable = 0
+    vae_losses = []
+    g_losses = []
+    h_losses = []
+    for d in Ds:
+        vae_run = []
+        g_run = []
+        h_run = []
+        for run in range(max_runs):
+            D = d
+            dataset = var.MyDataSet(d, D, num_points)
+            dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size,
+                                                     shuffle=True, num_workers=2)
+            s = dataset.sigma
+            # print (s)
+            if s_trainable:
+                vae = var.VAE(d, D)
+            else:
+                vae = var.VAE(d, D, s)
+            optimizer = optim.Adam(vae.parameters(), lr=lr)
+            l = None
+            epochs = []
+            prev_loss = 0
+            for epoch in range(max_epochs):
+                losses = []
+                for i, data in enumerate(dataloader, 0):
+                    inputs = Variable(data)
+                    optimizer.zero_grad()
+                    loss = vae.total_loss_direct(inputs)
+                    loss.backward()
+                    optimizer.step()
+                    l = loss
+                    losses.append(l.data[0])
+                vae_loss = np.mean(losses)
+                if abs(vae_loss-prev_loss) < thresh:
+                    break
+                prev_loss = vae_loss
+                # print (vae_loss)
+            vae_run.append(vae_loss)
+            g_loss = vae.expected_g(dataset.A, dataset.sigma, 1)  
+            print (g_loss) 
+            g_run.append(g_loss)
+        vae_losses.append(vae_run)
+        g_losses.append(g_run)
+
+    with open('vae_d.npy', 'wb') as f:
+        vae_loss_n = np.asarray(vae_losses)
+        np.save(f, vae_loss_n)
+
+    with open('g_d.npy', 'wb') as f:
+        g_loss_n = np.asarray(g_losses)
+        np.save(f, g_loss_n)
+
+
+
+
+
+def run():
 
     adjusted = 1
     s_trainable = 0

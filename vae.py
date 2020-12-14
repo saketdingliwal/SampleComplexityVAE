@@ -14,7 +14,7 @@ from scipy.linalg import svdvals
 
 
 criterion = nn.MSELoss()
-SIGMA = 1
+SIGMA = 0.1
 
 
 
@@ -43,12 +43,13 @@ class MyDataSet(torch.utils.data.Dataset):
         self.x = x_train_tensor
         
     def __getitem__(self, index):
-        v = np.random.normal(0, 1, size=(1,self.d))
-        noise = np.random.normal(0, 1, size=(1,self.D))
-        x_train = np.matmul(v, self.A.T) + self.sigma * noise
-        x_train = x_train.reshape((self.D,))
-        x_train_tensor = torch.from_numpy(x_train).float()
-        return x_train_tensor
+        # v = np.random.normal(0, 1, size=(1,self.d))
+        # noise = np.random.normal(0, 1, size=(1,self.D))
+        # x_train = np.matmul(v, self.A.T) + self.sigma * noise
+        # x_train = x_train.reshape((self.D,))
+        # x_train_tensor = torch.from_numpy(x_train).float()
+        # return x_train_tensor
+        return self.x[index]
 
     def __len__(self):
         return len(self.x)
