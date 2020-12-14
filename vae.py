@@ -14,7 +14,7 @@ from scipy.linalg import svdvals
 
 
 criterion = nn.MSELoss()
-SIGMA = 1e-1
+SIGMA = 1
 
 
 
@@ -25,10 +25,10 @@ class MyDataSet(torch.utils.data.Dataset):
         self.d = d
         v = np.random.normal(0, 1, size=(size,d))
         a = np.random.random(size=(D, d))
-        self.A, _ = np.linalg.qr(a)
-        # if np.sum(self.A)== 1: 
-        #     assert D==d and d==1, "Only when D=d=1"
-        #     _, self.A = np.linalg.qr(a)
+        # self.A, _ = np.linalg.qr(a)
+        # elems = np.asarray([2, 1.5, 1, 0.5])
+        # self.A = np.diag(elems)
+        self.A = a
         self.sigma = SIGMA
         noise = np.random.normal(0, 1, size=(size,D))
         x_train = np.matmul(v, self.A.T) + self.sigma * noise
@@ -193,9 +193,15 @@ class VAE(torch.nn.Module):
         if adjusted:
             assert A.shape[0] == A.shape[1], "Only valid when D=d"
             # print (A)
-            mat = np.diag(svdvals(A) - svdvals(W))
-            print ("SVD values of A", svdvals(A))
-            print ("SVD values for W", svdvals(W))
+            svd_a = svdvals(A)
+            svd_w = svdvals(W)
+            # u, s, vh = np.linalg.svd(A, full_matrices=True)
+            # print (u)
+            # u, s, vh = np.linalg.svd(W, full_matrices=True)
+            # print (u)
+            mat = np.diag(svd_a - svd_w)
+            # print ("SVD values square of A", svd_a * svd_a)
+            # print ("SVD values square for W", svd_w * svd_w)
             # print (mat)
             # if self.d==1 and self.D==1:
             #     mat = np.abs(A) - np.abs(W)
@@ -260,6 +266,126 @@ class VAE(torch.nn.Module):
 
 
 
+def run_2():
+    adjusted = 1
+    s_trainable = 0
+    Non = 'Non-trainable < A^2 + sigma^2 '
+    goal = 'Gold'
+    if adjusted:
+        goal = 'Adjusted'
+    if s_trainable:
+        Non = 'Trainable'
+
+
+    D = 4
+    d = 4
+    num_points = 100000
+    batch_size = 1000
+    lr = 0.1
+    max_epochs = 400
+    thresh = 1e-5
+
+    dataset = MyDataSet(d, D, num_points)
+    dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size,
+                                             shuffle=True, num_workers=2)
+
+    print('Number of samples: ', len(dataset))
+    sigma = dataset.sigma
+    sigma_2 = dataset.sigma * dataset.sigma
+
+    # diffs = [-0.8, -0.5, -0.3, -0.1, 0, 0.1, 0.4, 0.5, 0.6, 0.75, 0.9]
+    diffs = [-0.8, -0.5, -0.3, -0.1, 0, 0.1, 0.4, 0.5, 0.6, 0.75, 0.9, 
+                    1.2, 1.5, 1.75, 2, 2.5, 2.75, 3, 3.25, 3.5, 3.75, 4.2, 4.4, 5, 5.5]
+    vae_losses = []
+    for diff in diffs:
+        s = np.sqrt(sigma_2 + diff)
+        s_2 = s * s
+        if s_trainable:
+            vae = VAE(d, D)
+        else:
+            vae = VAE(d, D, s)
+        optimizer = optim.Adam(vae.parameters(), lr=lr)
+        l = None
+        epochs = []
+        g_losses = []
+        h_losses = []
+        prev_loss = 0
+        for epoch in range(max_epochs):
+            losses = []
+            for i, data in enumerate(dataloader, 0):
+                inputs = Variable(data)
+                optimizer.zero_grad()
+                loss = vae.total_loss_direct(inputs)
+                loss.backward()
+                optimizer.step()
+                l = loss
+                losses.append(l.data[0])
+            # print (epoch, "A", dataset.A[0][0])
+            # print (epoch, "M", vae.encoder.M.weight)
+            # print (epoch, "W", vae.decoder.W.weight)
+            # print (epoch, "S", torch.exp(vae.encoder.log_S))
+            # print (epoch, "s", torch.exp(vae.decoder.log_s))
+            vae_loss = np.mean(losses)
+            # print ("diff", s_2 - sigma_2)
+            # g_loss = vae.expected_g(dataset.A, dataset.sigma, adjusted)
+            # h_loss = vae.expected_g(dataset.A, dataset.sigma, 0)
+            # h_loss = vae.expected_h(dataset.A, dataset.sigma, adjusted)
+            if abs(vae_loss - prev_loss) < thresh:
+                break
+            prev_loss = vae_loss
+
+            # epochs.append(epoch)
+            # vae_losses.append(vae_loss)
+            # g_losses.append(g_loss)
+            # h_losses.append(h_loss)
+
+            # print(epoch, "VAE Loss", vae_loss)
+            # print(epoch, "g", g_loss)
+            # print(epoch, "h", h_loss)
+            # print ("----------------")
+        print (epoch)
+        print ("sigma square", sigma_2)
+        print ("s square", s_2)
+        print ("diff", diff)
+        W = vae.decoder.W.weight.detach().numpy()
+        u, s, vh = np.linalg.svd(W, full_matrices=True)
+        print (vh)
+        A = dataset.A
+        svd_a = svdvals(A)
+        svd_w = svdvals(W)
+        print ("SVD values square of A", svd_a * svd_a)
+        print ("SVD values square for W", svd_w * svd_w)
+        print ("adjusted goal value:", vae.expected_g(dataset.A, dataset.sigma, 1))
+        diag = svd_a - svd_w
+        diag_sq = diag * diag
+        print ("svd diff square sum", np.sum(diag_sq))
+
+        inputs = dataset.x
+        vae_loss = vae.total_loss_direct(inputs).data[0].detach().numpy()
+        print ("VAE Loss", vae_loss)
+        vae_losses.append(vae_loss)
+
+    A = dataset.A
+    svd_a = svdvals(A)
+    for i,xc in enumerate(list(svd_a)):
+        if i==0:
+            plt.axvline(x=(xc*xc), ls='--', c='blue', label='Singular Value of AA^T')
+        else:
+            plt.axvline(x=(xc*xc), ls='--', c='blue')
+
+    plt.plot(diffs, vae_losses, 'ro', label='VAE Loss Value')
+    plt.xlabel("s^2 - sigma^2")
+    plt.ylabel("VAE Loss Value")
+    title = '''
+                VAE Loss value for different values fixed for s^2'''
+                # The objective value remains constant based on singular values of A
+            # '''
+    plt.legend()
+    plt.title(title)
+    plt.savefig('_'.join(title.split()) + '.png')
+    plt.close()
+
+
 
 
 def run():
@@ -273,8 +399,8 @@ def run():
     if s_trainable:
         Non = 'Trainable'
 
-    D = 10
-    d = 10
+    D = 3
+    d = 3
     num_points = 10000
     batch_size = 1000
     lr = 0.1
@@ -287,7 +413,9 @@ def run():
     # print (dataset.A)
     # print (dataset.sigma)
     # s = 2 * np.sqrt(dataset.A[0][0] * dataset.A[0][0] + dataset.sigma * dataset.sigma) ## SC 
-    s = dataset.sigma
+    sigma_2 = dataset.sigma * dataset.sigma
+    s = dataset.sigma 
+    s_2 = s * s
     # print (s)
     if s_trainable:
         vae = VAE(d, D)
@@ -315,6 +443,7 @@ def run():
         # print (epoch, "S", torch.exp(vae.encoder.log_S))
         # print (epoch, "s", torch.exp(vae.decoder.log_s))
         vae_loss = np.mean(losses)
+        print ("diff", s_2 - sigma_2)
         g_loss = vae.expected_g(dataset.A, dataset.sigma, adjusted)
         h_loss = vae.expected_g(dataset.A, dataset.sigma, 0)
         # h_loss = vae.expected_h(dataset.A, dataset.sigma, adjusted)
@@ -330,7 +459,7 @@ def run():
         print(epoch, "h", h_loss)
         print ("----------------")
 
-
+    exit(0)
     fig, ax1 = plt.subplots(1,2)
     # goals = ['Encoder {} Goal'.format(goal), 'Decoder {} Goal'.format(goal)]
     goals = ['Gold Decoder Goal g(theta)', 'Adjusted Decoder Goal g_hat(theta)']
@@ -391,4 +520,4 @@ def run():
     # plt.legend()
 
 if __name__ == '__main__':
-    run()
+    run_2()
