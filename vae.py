@@ -14,7 +14,7 @@ from scipy.linalg import svdvals
 
 
 criterion = nn.MSELoss()
-SIGMA = 0.1
+SIGMA = 1
 
 
 
@@ -26,9 +26,9 @@ class MyDataSet(torch.utils.data.Dataset):
         v = np.random.normal(0, 1, size=(size,d))
         a = np.random.random(size=(D, d))
         # self.A, _ = np.linalg.qr(a)
-        # elems = np.asarray([2, 1.5, 1, 0.5])
-        # self.A = np.diag(elems)
-        self.A = a
+        elems = np.asarray([2, 1.5, 1, 0.5])
+        self.A = np.diag(elems)
+        # self.A = a
         self.sigma = SIGMA
         noise = np.random.normal(0, 1, size=(size,D))
         x_train = np.matmul(v, self.A.T) + self.sigma * noise
@@ -43,13 +43,13 @@ class MyDataSet(torch.utils.data.Dataset):
         self.x = x_train_tensor
         
     def __getitem__(self, index):
-        # v = np.random.normal(0, 1, size=(1,self.d))
-        # noise = np.random.normal(0, 1, size=(1,self.D))
-        # x_train = np.matmul(v, self.A.T) + self.sigma * noise
-        # x_train = x_train.reshape((self.D,))
-        # x_train_tensor = torch.from_numpy(x_train).float()
-        # return x_train_tensor
-        return self.x[index]
+        v = np.random.normal(0, 1, size=(1,self.d))
+        noise = np.random.normal(0, 1, size=(1,self.D))
+        x_train = np.matmul(v, self.A.T) + self.sigma * noise
+        x_train = x_train.reshape((self.D,))
+        x_train_tensor = torch.from_numpy(x_train).float()
+        return x_train_tensor
+        # return self.x[index]
 
     def __len__(self):
         return len(self.x)
@@ -280,7 +280,7 @@ def run_2():
 
     D = 4
     d = 4
-    num_points = 100000
+    num_points = 10000
     batch_size = 1000
     lr = 0.1
     max_epochs = 400
@@ -294,13 +294,15 @@ def run_2():
     sigma = dataset.sigma
     sigma_2 = dataset.sigma * dataset.sigma
 
-    # diffs = [-0.8, -0.5, -0.3, -0.1, 0, 0.1, 0.4, 0.5, 0.6, 0.75, 0.9]
-    diffs = [-0.8, -0.5, -0.3, -0.1, 0, 0.1, 0.4, 0.5, 0.6, 0.75, 0.9, 
+    # diffs = [-0.8, -0.5, -0.3, -0.1, 0]
+    diffs = [-0.8, -0.7, -0.5, -0.3, -0.1, 0, 0.1, 0.4, 0.5, 0.6, 0.75, 0.9, 
                     1.2, 1.5, 1.75, 2, 2.5, 2.75, 3, 3.25, 3.5, 3.75, 4.2, 4.4, 5, 5.5]
     vae_losses = []
+    s_2s = []
     for diff in diffs:
         s = np.sqrt(sigma_2 + diff)
         s_2 = s * s
+        s_2s.append(s_2)
         if s_trainable:
             vae = VAE(d, D)
         else:
@@ -370,12 +372,12 @@ def run_2():
     svd_a = svdvals(A)
     for i,xc in enumerate(list(svd_a)):
         if i==0:
-            plt.axvline(x=(xc*xc), ls='--', c='blue', label='Singular Value of AA^T')
+            plt.axvline(x=(xc*xc + sigma_2), ls='--', c='blue', label='singular values of AA^T + sigma^2 I')
         else:
-            plt.axvline(x=(xc*xc), ls='--', c='blue')
+            plt.axvline(x=(xc*xc + sigma_2), ls='--', c='blue')
 
-    plt.plot(diffs, vae_losses, 'ro', label='VAE Loss Value')
-    plt.xlabel("s^2 - sigma^2")
+    plt.plot(s_2s, vae_losses, 'ro', label='VAE Loss Value')
+    plt.xlabel("s^2")
     plt.ylabel("VAE Loss Value")
     title = '''
                 VAE Loss value for different values fixed for s^2'''
@@ -383,7 +385,8 @@ def run_2():
             # '''
     plt.legend()
     plt.title(title)
-    plt.savefig('_'.join(title.split()) + '.png')
+    # plt.savefig('_'.join(title.split()) + '.png')
+    plt.savefig('stationary_points.png')
     plt.close()
 
 
@@ -400,11 +403,11 @@ def run():
     if s_trainable:
         Non = 'Trainable'
 
-    D = 3
-    d = 3
+    D = 4
+    d = 4
     num_points = 10000
     batch_size = 1000
-    lr = 0.1
+    lr = 0.01
     max_epochs = 150
     dataset = MyDataSet(d, D, num_points)
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size,
@@ -428,9 +431,11 @@ def run():
     vae_losses = []
     g_losses = []
     h_losses = []
+    counter = 0
     for epoch in range(max_epochs):
         losses = []
         for i, data in enumerate(dataloader, 0):
+            counter +=1
             inputs = Variable(data)
             optimizer.zero_grad()
             loss = vae.total_loss_direct(inputs)
@@ -450,7 +455,7 @@ def run():
         # h_loss = vae.expected_h(dataset.A, dataset.sigma, adjusted)
 
 
-        epochs.append(epoch)
+        epochs.append(counter)
         vae_losses.append(vae_loss)
         g_losses.append(g_loss)
         h_losses.append(h_loss)
@@ -460,15 +465,15 @@ def run():
         print(epoch, "h", h_loss)
         print ("----------------")
 
-    exit(0)
+    # exit(0)
     fig, ax1 = plt.subplots(1,2)
     # goals = ['Encoder {} Goal'.format(goal), 'Decoder {} Goal'.format(goal)]
-    goals = ['Gold Decoder Goal g(theta)', 'Adjusted Decoder Goal g_hat(theta)']
+    goals = ['Decoder Gold Goal g', 'Decoder Adjusted Goal g_tilde']
     vals = [h_losses, g_losses]
 
     for i in range(2):
         loss_color = 'green'
-        ax1[i].set_xlabel('epochs')
+        ax1[i].set_xlabel('Number of Steps with batch size {}'.format(batch_size))
         ax1[i].set_ylabel('VAE loss', color=loss_color)
         ax1[i].plot(epochs, vae_losses, color=loss_color)
         ax1[i].tick_params(axis='y', labelcolor=loss_color)
@@ -509,7 +514,8 @@ def run():
                 Case: D=d, N->Infinity
             '''
 
-    file_name = '_'.join(title.split()) + '.png'
+    # file_name = '_'.join(title.split()) + '.png'
+    file_name = 'goal_choice.png'
     plt.suptitle(title, color='red', y=0.98)
     plt.savefig(file_name)
 

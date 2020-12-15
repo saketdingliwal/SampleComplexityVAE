@@ -1,2 +1,4 @@
 *.npy
 *.out
+*.pyc
+*.png
